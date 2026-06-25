@@ -8,6 +8,7 @@ import subprocess
 from collections import Counter
 
 from rich.markup import escape
+from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -30,6 +31,11 @@ from .parser import Session, scan_sessions
 
 ALL = "__all__"
 
+# Proportional column widths (fractions of the table width), in column order:
+# Title, ID, Msgs, Tools, Duration, Activity. They sum to 1.0.
+COLUMN_WEIGHTS = (0.40, 0.13, 0.11, 0.11, 0.12, 0.13)
+MIN_COLUMN_WIDTH = 4
+
 # Launch flags: (label, extra args appended to `claude --resume <id>`).
 # Multiple options can be selected at once; their args are concatenated.
 LAUNCH_OPTIONS: list[tuple[str, list[str]]] = [
@@ -43,6 +49,19 @@ LAUNCH_OPTIONS: list[tuple[str, list[str]]] = [
     ("⚠ Skip permission checks  (--dangerously-skip-permissions)",
      ["--dangerously-skip-permissions"]),
 ]
+
+
+class SessionsTable(DataTable):
+    """DataTable that re-lays out its columns whenever its own size changes.
+
+    Reacting to the table's own resize (rather than the app's) means the
+    table region already reports its new width — no one-frame lag.
+    """
+
+    def on_resize(self, event: events.Resize) -> None:
+        relayout = getattr(self.app, "relayout_table", None)
+        if callable(relayout):
+            relayout()
 
 
 class LaunchDialog(ModalScreen[list[str] | None]):
@@ -157,6 +176,7 @@ class SessionsApp(App):
         self.project_filter: str = ALL
         self.query: str = ""
         self.current: Session | None = None
+        self._title_col: object | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -165,7 +185,7 @@ class SessionsApp(App):
             yield ListView(id="projects")
         with Vertical(id="right"):
             yield Input(placeholder="Search by title / prompt / id…", id="search")
-            yield DataTable(id="table")
+            yield SessionsTable(id="table")
             with VerticalScroll(id="detail"):
                 yield Static(id="detail-body")
         yield Footer()
@@ -173,9 +193,11 @@ class SessionsApp(App):
     async def on_mount(self) -> None:
         table = self.query_one("#table", DataTable)
         table.cursor_type = "row"
-        table.add_column("Title", width=17)
-        table.add_columns("ID", "Msgs", "Tools", "Duration", "Activity")
+        self._title_col = table.add_columns(
+            "Title", "ID", "Msgs", "Tools", "Duration", "Activity",
+        )[0]
         await self.load()
+        self.call_after_refresh(self.relayout_table)
 
     # ── data ────────────────────────────────────────────────────────────
 
@@ -215,8 +237,9 @@ class SessionsApp(App):
         table = self.query_one("#table", DataTable)
         table.clear()
         self.visible_sessions = self.filtered()
+        title_w = self._title_width()
         for s in self.visible_sessions:
-            title = s.title if len(s.title) <= 17 else s.title[:16] + "…"
+            title = self._fit_title(s.title, title_w)
             table.add_row(
                 title,
                 s.short_id,
@@ -232,6 +255,59 @@ class SessionsApp(App):
         else:
             self.current = None
             self.query_one("#detail-body", Static).update("[dim]Nothing found[/dim]")
+
+    def _resize_columns(self) -> None:
+        """Lay out columns proportionally to the table's current width."""
+        table = self.query_one("#table", DataTable)
+        if not table.columns:
+            return
+        width = table.scrollable_content_region.width
+        if width <= 0:
+            return
+        n = len(table.columns)
+        # each column reserves 2 * cell_padding cells beyond its content width
+        avail = width - n * 2 * table.cell_padding
+        if avail < n * MIN_COLUMN_WIDTH:
+            return
+        widths = [max(MIN_COLUMN_WIDTH, int(avail * w)) for w in COLUMN_WEIGHTS]
+        # give any rounding leftovers to the Title column
+        widths[0] += avail - sum(widths)
+        for column, w in zip(table.columns.values(), widths):
+            column.auto_width = False
+            column.width = max(MIN_COLUMN_WIDTH, w)
+        table._require_update_dimensions = True
+        table.refresh()
+
+    def _title_width(self) -> int:
+        """Current content width of the Title column (fallback before layout)."""
+        table = self.query_one("#table", DataTable)
+        cols = list(table.columns.values())
+        if cols and not cols[0].auto_width and cols[0].width:
+            return cols[0].width
+        return 30
+
+    @staticmethod
+    def _fit_title(title: str, width: int) -> str:
+        return title if len(title) <= width else title[: max(1, width - 1)] + "…"
+
+    def _refresh_titles(self) -> None:
+        """Re-truncate title cells to the current column width (no cursor reset)."""
+        if self._title_col is None:
+            return
+        table = self.query_one("#table", DataTable)
+        width = self._title_width()
+        for s in self.visible_sessions:
+            try:
+                table.update_cell(
+                    s.session_id, self._title_col,
+                    self._fit_title(s.title, width), update_width=False,
+                )
+            except Exception:
+                pass
+
+    def relayout_table(self) -> None:
+        self._resize_columns()
+        self._refresh_titles()
 
     # ── detail panel ──────────────────────────────────────────────────────
 
@@ -375,7 +451,7 @@ def main() -> None:
             from importlib.metadata import version
             print(f"claude-sessions-tui {version('claude-sessions-tui')}")
         except Exception:
-            print("claude-sessions-tui 0.1.0")
+            print("claude-sessions-tui 0.1.1")
         return
     if "--help" in args or "-h" in args:
         print(
