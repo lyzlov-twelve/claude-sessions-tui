@@ -11,14 +11,39 @@ the **title + ID + a short review** (first/last prompt, stats, timing, PR).
 - **Review** — first and last prompt, message / tool-call counts, duration,
   last-activity age, sub-agents used, linked PR/MR
 
-## Run
+## Install
+
+### Homebrew (tap)
+
+```bash
+brew tap lyzlov-twelve/tap
+brew trust lyzlov-twelve/tap        # Homebrew 6+ requires trusting third-party taps
+brew install claude-sessions-tui
+claude-sessions
+```
+
+> **Note:** the formula builds a Python virtualenv, so it needs a healthy
+> Homebrew Python toolchain. On macOS with an outdated Xcode/Command Line Tools
+> the build can fail with a `pyexpat … Symbol not found` error — update Xcode
+> (App Store) or the CLT (`softwareupdate --install --all`) and retry. If you
+> hit that, the `uv` method below works regardless of the system toolchain.
+
+### uv (works everywhere)
+
+`uv` ships its own Python (with a bundled libexpat), so this is the most robust
+option and avoids any system-toolchain issues:
+
+```bash
+uv tool install "git+https://github.com/lyzlov-twelve/claude-sessions-tui@v0.1.0"
+claude-sessions
+```
+
+### From source
 
 ```bash
 cd ~/Projects/claude-sessions-tui
 uv run claude-sessions          # or: uv run python -m claude_sessions
 ```
-
-The first run creates a venv and installs `textual` automatically.
 
 ## Keys
 
