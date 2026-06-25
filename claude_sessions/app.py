@@ -368,6 +368,26 @@ class SessionsApp(App):
 
 
 def main() -> None:
+    import sys
+    args = sys.argv[1:]
+    if "--version" in args or "-V" in args:
+        try:
+            from importlib.metadata import version
+            print(f"claude-sessions-tui {version('claude-sessions-tui')}")
+        except Exception:
+            print("claude-sessions-tui 0.1.0")
+        return
+    if "--help" in args or "-h" in args:
+        print(
+            "Usage: claude-sessions\n\n"
+            "Terminal UI for browsing Claude Code sessions from jsonl files.\n"
+            "Reads ~/.claude/projects/*/*.jsonl and lets you resume a session "
+            "in Claude.\n\n"
+            "Options:\n"
+            "  -V, --version   Show version and exit\n"
+            "  -h, --help      Show this help and exit"
+        )
+        return
     SessionsApp().run()
 
 
