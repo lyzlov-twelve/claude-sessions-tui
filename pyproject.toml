@@ -1,6 +1,6 @@
 [project]
 name = "claude-sessions-tui"
-version = "0.1.1"
+version = "0.1.2"
 description = "Terminal UI for browsing Claude Code sessions from jsonl files"
 readme = "README.md"
 requires-python = ">=3.10"

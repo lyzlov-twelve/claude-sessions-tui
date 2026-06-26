@@ -55,9 +55,21 @@ uv run claude-sessions          # or: uv run python -m claude_sessions
 | `Tab` | switch focus (projects ⇄ table) |
 | `Enter` / `c` | **open the session in Claude** (opens a confirmation dialog) |
 | `/` | search by title / prompt / id |
-| `Esc` | clear the search |
+| `s` | **settings** — change the sessions folder |
 | `r` | rescan sessions |
+| `Esc` | clear the search if active, otherwise quit |
 | `q` | quit |
+
+## Settings — sessions folder
+
+By default the tool reads `~/.claude/projects`. You can point it elsewhere
+(resolution order, highest priority first):
+
+1. CLI flag — `claude-sessions --projects-dir /path/to/projects`
+2. Env var — `CLAUDE_SESSIONS_DIR=/path/to/projects claude-sessions`
+3. In-app settings — press `s`, edit the path, **Save** (persisted to a config
+   file under your user config dir, e.g. `~/Library/Application Support/claude-sessions-tui/config.json`)
+4. Default — `~/.claude/projects`
 
 ## Launching a session in Claude
 

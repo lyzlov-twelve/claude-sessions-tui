@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 from collections import Counter
+from pathlib import Path
 
 from rich.markup import escape
 from textual import events
@@ -27,6 +28,7 @@ from textual.widgets import (
 )
 from textual.widgets.selection_list import Selection
 
+from .config import CONFIG_FILE, resolve_projects_dir, set_projects_dir
 from .parser import Session, scan_sessions
 
 ALL = "__all__"
@@ -62,6 +64,69 @@ class SessionsTable(DataTable):
         relayout = getattr(self.app, "relayout_table", None)
         if callable(relayout):
             relayout()
+
+
+class SettingsScreen(ModalScreen[str | None]):
+    """Edit the sessions folder. Returns the new path on save, None on cancel."""
+
+    CSS = """
+    SettingsScreen { align: center middle; }
+    #dialog {
+        width: 80;
+        height: auto;
+        border: thick $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+    #set-title { text-style: bold; color: $accent; }
+    #set-hint { color: $text-muted; padding: 1 0 0 0; }
+    #set-input { margin: 1 0; }
+    #set-buttons { height: auto; align: center middle; }
+    #set-buttons Button { margin: 0 1; }
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, current_dir: Path) -> None:
+        super().__init__()
+        self.current_dir = current_dir
+
+    def compose(self) -> ComposeResult:
+        yield Vertical(
+            Label("Settings — sessions folder", id="set-title"),
+            Input(value=str(self.current_dir), id="set-input"),
+            Label(
+                f"Default: ~/.claude/projects\n"
+                f"Saved to: {CONFIG_FILE}\n"
+                f"Overridable via --projects-dir or $CLAUDE_SESSIONS_DIR.",
+                id="set-hint",
+            ),
+            Horizontal(
+                Button("Save", variant="success", id="save"),
+                Button("Cancel", variant="error", id="cancel"),
+                id="set-buttons",
+            ),
+            id="dialog",
+        )
+
+    def on_mount(self) -> None:
+        self.query_one("#set-input", Input).focus()
+
+    def _save(self) -> None:
+        value = self.query_one("#set-input", Input).value.strip()
+        self.dismiss(value or None)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self._save()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "save":
+            self._save()
+        else:
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class LaunchDialog(ModalScreen[list[str] | None]):
@@ -160,17 +225,19 @@ class SessionsApp(App):
         Binding("left", "focus_projects", "← To projects", show=False, priority=True),
         Binding("enter", "open_session", "Open in Claude"),
         Binding("c", "open_session", "Open in Claude", show=False),
-        Binding("q", "quit", "Quit"),
+        Binding("s", "settings", "Settings"),
         Binding("r", "refresh", "Refresh"),
         Binding("/", "search", "Search"),
-        Binding("escape", "clear_search", "Clear search", show=False),
+        Binding("q", "quit", "Quit"),
+        Binding("escape", "escape", "Quit / clear search"),
         Binding("tab", "focus_next", "Focus", show=False),
     ]
 
     TITLE = "Claude Code — Sessions"
 
-    def __init__(self) -> None:
+    def __init__(self, projects_dir: Path | None = None) -> None:
         super().__init__()
+        self.projects_dir: Path = projects_dir or resolve_projects_dir()
         self.sessions: list[Session] = []
         self.visible_sessions: list[Session] = []
         self.project_filter: str = ALL
@@ -202,7 +269,7 @@ class SessionsApp(App):
     # ── data ────────────────────────────────────────────────────────────
 
     async def load(self) -> None:
-        self.sessions = scan_sessions()
+        self.sessions = scan_sessions(self.projects_dir)
         await self.rebuild_projects()
         self.rebuild_table()
 
@@ -372,6 +439,9 @@ class SessionsApp(App):
         self.rebuild_table()
 
     def on_input_changed(self, event: Input.Changed) -> None:
+        # only the search box drives filtering — ignore inputs from modals
+        if event.input.id != "search":
+            return
         self.query = event.value
         self.rebuild_table()
 
@@ -429,6 +499,35 @@ class SessionsApp(App):
     async def action_refresh(self) -> None:
         await self.load()
 
+    def action_settings(self) -> None:
+        self.push_screen(SettingsScreen(self.projects_dir), self._on_settings)
+
+    def _on_settings(self, new_dir: str | None) -> None:
+        if not new_dir:
+            return
+        path = Path(os.path.expanduser(new_dir))
+        self.projects_dir = path
+        set_projects_dir(path)
+        self.run_worker(self._reload(), exclusive=True)
+
+    async def _reload(self) -> None:
+        await self.load()
+        self.call_after_refresh(self.relayout_table)
+        ok = self.projects_dir.is_dir()
+        self.notify(
+            f"Sessions folder: {self.projects_dir}"
+            + ("" if ok else "  (folder not found)"),
+            severity="information" if ok else "warning",
+        )
+
+    def action_escape(self) -> None:
+        """Esc clears an active search; otherwise it quits the app."""
+        search = self.query_one("#search", Input)
+        if "visible" in search.classes or search.value:
+            self.action_clear_search()
+        else:
+            self.exit()
+
     def action_search(self) -> None:
         search = self.query_one("#search", Input)
         search.add_class("visible")
@@ -451,20 +550,28 @@ def main() -> None:
             from importlib.metadata import version
             print(f"claude-sessions-tui {version('claude-sessions-tui')}")
         except Exception:
-            print("claude-sessions-tui 0.1.1")
+            print("claude-sessions-tui 0.1.2")
         return
     if "--help" in args or "-h" in args:
         print(
-            "Usage: claude-sessions\n\n"
+            "Usage: claude-sessions [--projects-dir PATH]\n\n"
             "Terminal UI for browsing Claude Code sessions from jsonl files.\n"
-            "Reads ~/.claude/projects/*/*.jsonl and lets you resume a session "
+            "Reads <projects-dir>/*/*.jsonl and lets you resume a session "
             "in Claude.\n\n"
             "Options:\n"
-            "  -V, --version   Show version and exit\n"
-            "  -h, --help      Show this help and exit"
+            "  --projects-dir PATH  Folder holding the session jsonl files\n"
+            "                       (default ~/.claude/projects; also settable\n"
+            "                       in-app with 's' or via $CLAUDE_SESSIONS_DIR)\n"
+            "  -V, --version        Show version and exit\n"
+            "  -h, --help           Show this help and exit"
         )
         return
-    SessionsApp().run()
+    cli_dir: str | None = None
+    if "--projects-dir" in args:
+        i = args.index("--projects-dir")
+        if i + 1 < len(args):
+            cli_dir = args[i + 1]
+    SessionsApp(resolve_projects_dir(cli_dir)).run()
 
 
 if __name__ == "__main__":
