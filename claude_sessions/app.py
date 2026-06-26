@@ -228,8 +228,7 @@ class SessionsApp(App):
         Binding("s", "settings", "Settings"),
         Binding("r", "refresh", "Refresh"),
         Binding("/", "search", "Search"),
-        Binding("q", "quit", "Quit"),
-        Binding("escape", "escape", "Quit / clear search"),
+        Binding("q,escape", "escape", "Quit", key_display="q / Esc"),
         Binding("tab", "focus_next", "Focus", show=False),
     ]
 
@@ -550,7 +549,7 @@ def main() -> None:
             from importlib.metadata import version
             print(f"claude-sessions-tui {version('claude-sessions-tui')}")
         except Exception:
-            print("claude-sessions-tui 0.1.2")
+            print("claude-sessions-tui 0.1.3")
         return
     if "--help" in args or "-h" in args:
         print(
