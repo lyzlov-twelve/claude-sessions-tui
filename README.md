@@ -4,6 +4,8 @@ A console (TUI) tool for browsing Claude Code sessions. It reads the jsonl files
 from `~/.claude/projects/<project>/<sessionId>.jsonl` and shows, per session,
 the **title + ID + a short review** (first/last prompt, stats, timing, PR).
 
+![Sessions list](docs/main-screen.png)
+
 ## What it shows
 
 - **Title** — custom (`custom-title`) → AI title (`ai-title`) → first prompt
@@ -62,6 +64,8 @@ uv run claude-sessions          # or: uv run python -m claude_sessions
 
 ## Settings — sessions folder
 
+![Settings](docs/settings.png)
+
 By default the tool reads `~/.claude/projects`. You can point it elsewhere
 (resolution order, highest priority first):
 
@@ -76,6 +80,8 @@ By default the tool reads `~/.claude/projects`. You can point it elsewhere
 Selecting a session (`Enter` or click) opens a dialog
 **"Open this session in this window?"** with a multi-select list of launch
 options (toggle with `Space`, several can be combined):
+
+![Launch a session](docs/launch-session.png)
 
 | Option | Adds |
 |--------|------|
